@@ -19,7 +19,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning className="bg-red-950">
+    <html lang="en" suppressHydrationWarning className="bg-slate-300">
       <body suppressHydrationWarning
         className={`${kalniaGlaze.variable} antialiased`}
       >

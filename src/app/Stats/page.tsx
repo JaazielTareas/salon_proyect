@@ -1,152 +1,115 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 import BarChart from '../components/BarChart';
-import LoadingSpinner from '../components/Loading';
-import { ChartData } from 'chart.js';
 import PieChart from '../components/PieChart';
 import LineChart from '../components/LineChart';
-
-interface Appointment {
-  timestamp: string;
-  name: string;
-  email: string;
-  date: string;
-  time: string;
-  service: string;
-  person: string;
-}
+import LoadingSpinner from '../components/Loading';
+import { useFetchAppointments } from '../../../hooks/useFetchAppointments';
 
 const StatsPage = () => {
-  const [data, setData] = useState<Appointment[]>([]);
-  const [serviceChartData, setServiceChartData] = useState<ChartData<'bar'>>({
-    labels: [],
-    datasets: []
-  });
-  
-  const [personChartData, setPersonChartData] = useState<ChartData<'pie'>>({
-    labels: [],
-    datasets: []
-  });
-  
-  const [timeChartData, setTimeChartData] = useState<ChartData<'line'>>({
-    labels: [],
-    datasets: []
-  });
+  const {
+    serviceChartData,
+    personChartData,
+    timeChartData,
+    summaryData,
+    isLoading,
+    error,
+    refetchData, // Asume que este método está disponible en tu hook
+  } = useFetchAppointments();
 
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
 
-  const spreadsheetUrl =
-    'https://docs.google.com/spreadsheets/d/e/2PACX-1vScIiueHJ7x287mbbdA3R1i6t8-c-SL-hgY5ENDR5il6er9NsKE1gHNo2i3qqNz0eU9h1OY03EESXAU/pubhtml';
+  const generatePDF = async () => {
+    setIsGenerating(true);
+    const doc = new jsPDF('portrait', 'px', 'a4');
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const response = await fetch(spreadsheetUrl);
-        if (!response.ok) {
-          throw new Error(`Error al cargar los datos: ${response.status}`);
-        }
+    try {
+      // Sección: Total generado en productos
+      doc.text('Resumen General', 20, 20);
+      doc.text(`Total generado en productos: $${summaryData.totalRevenue.toFixed(2)}`, 20, 40);
+      doc.text(`Producto más solicitado: ${summaryData.topService.name} (${summaryData.topService.count} veces)`, 20, 60);
+      doc.text(`Empleado destacado: ${summaryData.topEmployee.name} (${summaryData.topEmployee.clients} clientes)`, 20, 80);
 
-        const html = await response.text();
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
-        const table = doc.querySelector('table');
-        if (!table) {
-          throw new Error('No se encontró la tabla en el HTML.');
-        }
+      const peakHoursText = summaryData.peakHours.map(
+        (hour) => `- ${hour.hour}: ${hour.count} solicitudes`
+      ).join('\n');
+      doc.text(`Horas más concurridas:\n${peakHoursText}`, 20, 100);
 
-        const rows = Array.from(table.rows).map((row) =>
-          Array.from(row.cells).map((cell) => cell.textContent?.trim() || '')
-        );
-
-        const filteredData: Appointment[] = rows.slice(4).map((row) => ({
-          timestamp: row[1],
-          name: row[2],
-          email: row[3],
-          date: row[4],
-          time: row[5],
-          service: row[6],
-          person: row[7],
-        }));
-
-        setData(filteredData);
-
-        // Contar servicios
-        const serviceCount: Record<string, number> = {};
-        const personCount: Record<string, number> = {};
-        const timeCount: Record<string, number> = {};
-
-        filteredData.forEach((appointment) => {
-          serviceCount[appointment.service] = (serviceCount[appointment.service] || 0) + 1;
-          personCount[appointment.person] = (personCount[appointment.person] || 0) + 1;
-          timeCount[appointment.time] = (timeCount[appointment.time] || 0) + 1;
-        });
-
-        // Configuración de datos para gráficos
-        setServiceChartData({
-          labels: Object.keys(serviceCount),
-          datasets: [
-            {
-              label: 'Servicios',
-              data: Object.values(serviceCount),
-              backgroundColor: 'rgba(75, 192, 192, 0.2)',
-              borderColor: 'rgba(75, 192, 192, 1)',
-              borderWidth: 1,
-            }
-          ],
-        });
-
-        setPersonChartData({
-          labels: Object.keys(personCount),
-          datasets: [
-            {
-              label: 'Personas',
-              data: Object.values(personCount),
-              backgroundColor: ['rgba(255, 99, 132, 0.2)', 'rgba(54, 162, 235, 0.2)', 'rgba(255, 206, 86, 0.2)'],
-              borderColor: ['rgba(255, 99, 132, 1)', 'rgba(54, 162, 235, 1)', 'rgba(255, 206, 86, 1)'],
-              borderWidth: 1,
-            }
-          ],
-        });
-
-        setTimeChartData({
-          labels: Object.keys(timeCount),
-          datasets: [
-            {
-              label: 'Horas',
-              data: Object.values(timeCount),
-              fill: false,
-              borderColor: 'rgba(75, 192, 192, 1)',
-              tension: 0.1,
-            }
-          ],
-        });
-
-        setIsLoading(false);
-      } catch (err: any) {
-        setError(err.message);
-        setIsLoading(false);
+      // Gráfico: Servicios
+      const barChart = document.getElementById('bar-chart');
+      if (barChart) {
+        const canvas = await html2canvas(barChart);
+        const imgData = canvas.toDataURL('image/png');
+        doc.addPage();
+        doc.text('Reporte de Servicios', 20, 20);
+        doc.addImage(imgData, 'PNG', 20, 40, 400, 200);
       }
-    };
 
-    fetchData();
-  }, []);
+      // Gráfico: Empleados
+      const pieChart = document.getElementById('pie-chart');
+      if (pieChart) {
+        const canvas = await html2canvas(pieChart);
+        const imgData = canvas.toDataURL('image/png');
+        doc.addPage();
+        doc.text('Reporte de Empleados', 20, 20);
+        doc.addImage(imgData, 'PNG', 20, 40, 400, 200);
+      }
 
-  if (isLoading) {
-    return <LoadingSpinner />;
-  }
+      // Gráfico: Horarios
+      const lineChart = document.getElementById('line-chart');
+      if (lineChart) {
+        const canvas = await html2canvas(lineChart);
+        const imgData = canvas.toDataURL('image/png');
+        doc.addPage();
+        doc.text('Reporte de Horarios', 20, 20);
+        doc.addImage(imgData, 'PNG', 20, 40, 400, 200);
+      }
 
-  if (error) {
-    return <p className="text-red-500">Error: {error}</p>;
-  }
+      // Guardar PDF
+      doc.save('reporte_estadisticas.pdf');
+    } catch (err) {
+      console.error('Error al generar el PDF:', err);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  if (isLoading) return <LoadingSpinner />;
+  if (error) return <p className="text-red-500">Error: {error}</p>;
 
   return (
     <div className="p-6 flex justify-center flex-col gap-16">
-      <h1 className="text-2xl font-bold mb-4">Estadísticas del Salon</h1>
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-2xl font-bold">Estadísticas del Salón</h1>
+        <div className="flex gap-4">
+          <button
+            onClick={refetchData}
+            className="bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-lg shadow-lg"
+          >
+            Actualizar Datos
+          </button>
+          <button
+            onClick={generatePDF}
+            className="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow-lg"
+            disabled={isGenerating}
+          >
+            {isGenerating ? 'Generando...' : 'Generar Reporte'}
+          </button>
+        </div>
+      </div>
+
+      <div id="bar-chart">
         <BarChart data={serviceChartData} />
+      </div>
+      <div id="pie-chart">
         <PieChart data={personChartData} />
+      </div>
+      <div id="line-chart">
         <LineChart data={timeChartData} />
+      </div>
     </div>
   );
 };
